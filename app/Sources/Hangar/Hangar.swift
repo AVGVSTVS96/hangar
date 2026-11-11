@@ -83,11 +83,13 @@ final class Hangar {
         guard let server, Date.now.timeIntervalSince(heard) > 25 else { return }
         stream?.cancel()
         stream = Task {
+            var failures = 0
             while !Task.isCancelled {
                 do {
                     let (bytes, response) = try await URLSession.shared.bytes(from: server.appending(path: "events"))
                     guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
                     reachable = true
+                    failures = 0
                     var event = ""
                     for try await line in bytes.lines {
                         heard = .now
@@ -99,7 +101,8 @@ final class Hangar {
                     }
                 } catch {
                     if Task.isCancelled { return }
-                    reachable = false
+                    failures += 1
+                    reachable = failures < 2
                     heard = .distantPast
                 }
                 try? await Task.sleep(for: .seconds(2))
