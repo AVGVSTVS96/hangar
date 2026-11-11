@@ -29,7 +29,7 @@ struct AppsView: View {
                             }
                         } header: {
                             UpdateAll()
-                                .padding(.top, 6)
+                                .padding(.vertical, 6)
                                 .background(Color(.systemGroupedBackground))
                         }
                     }
@@ -50,7 +50,9 @@ struct AppsView: View {
             .navigationSubtitle(summary)
             .toolbarTitleDisplayMode(.inlineLarge)
             .overlay {
-                if hangar.loaded && hangar.apps.isEmpty {
+                if !hangar.loaded && hangar.reachable {
+                    ProgressView()
+                } else if hangar.loaded && hangar.apps.isEmpty {
                     ContentUnavailableView(
                         "Put a build on hangar", systemImage: "square.and.arrow.down",
                         description: Text("Each app shows up here with its first build."))
@@ -64,7 +66,8 @@ struct AppsView: View {
         if hangar.apps.isEmpty { return "No apps yet" }
         if hangar.running {
             let total = hangar.run.count
-            return total == 1 ? "Updating" : "Updating \(min(hangar.finished + 1, total)) of \(total)"
+            let at = hangar.focus.flatMap { hangar.run.firstIndex(of: $0) }.map { $0 + 1 } ?? total
+            return total == 1 ? "Updating" : "Updating \(at) of \(total)"
         }
         let count = hangar.updates.count
         let downloaded = hangar.apps.count(where: \.isDownloaded)
@@ -147,7 +150,7 @@ private struct AppCard: View {
         case .failed(let reason): return reason
         case nil: break
         }
-        if app.isDownloaded { return "\(app.build) downloaded" }
+        if app.isDownloaded { return "Got build \(app.build)" }
         guard let installed = app.installed else { return "Not installed" }
         return installed >= app.build ? "Build \(app.build)" : "\(installed) → \(app.build)"
     }
@@ -182,6 +185,7 @@ private struct Action: View {
             }
         }
         .frame(minWidth: 32, minHeight: 32, alignment: .trailing)
+        .fixedSize()
     }
 
     private func pill(_ title: String, action: @escaping () -> Void) -> some View {
@@ -247,6 +251,8 @@ private struct Tile: View {
 
 private struct UpdateAll: View {
     @Environment(Hangar.self) private var hangar
+    @Environment(\.verticalSizeClass) private var heightClass
+    private var compact: Bool { heightClass == .compact }
 
     var body: some View {
         if hangar.running || !hangar.updates.isEmpty {
@@ -259,7 +265,7 @@ private struct UpdateAll: View {
                     .foregroundStyle(hangar.running ? AnyShapeStyle(.primary) : AnyShapeStyle(.white))
                     .contentTransition(.opacity)
                     .padding(.horizontal, 20)
-                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .frame(maxWidth: .infinity, minHeight: compact ? 44 : 52)
                     .background { fill }
                     .clipShape(.capsule)
             }
@@ -276,7 +282,7 @@ private struct UpdateAll: View {
     private var fill: some View {
         ZStack(alignment: .leading) {
             if hangar.running {
-                Color(.secondarySystemGroupedBackground)
+                Color(.systemFill)
                 GeometryReader { size in
                     Rectangle().fill(.tint.opacity(0.4)).frame(width: size.size.width * hangar.fraction)
                 }

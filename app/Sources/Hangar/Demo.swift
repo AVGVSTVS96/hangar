@@ -11,20 +11,26 @@ enum Demo {
         case "connecting": break
         case "empty": hangar.show([])
         case "current": hangar.show(apps.filter { !$0.isHangar }.map { $0.with(phone: $0.build) })
+        case "finished":
+            hangar.show(apps.filter { !$0.isHangar }.map {
+                $0.name == "Span" ? $0.with(phone: $0.build) : $0.with(downloaded: $0.build).named($0.name == "Camera" ? "Camera Lab Experiments" : $0.name)
+            })
         case "states": hangar.show(apps.map { $0.name == "Span" ? $0.with(build: 5904, downloaded: 5904) : $0 })
         default: hangar.show(apps)
         }
         let voice = "com.example.voice", keyboard = "com.example.keyboard", camera = "com.example.camera"
         if scene == "run" {
-            hangar.run = [keyboard, voice, camera, hangarID]
+            hangar.run = [voice, keyboard, camera, hangarID]
             hangar.jobs = [voice: .downloading(0.62), keyboard: .waiting(asked: true), camera: .queued, hangarID: .queued]
+            hangar.current = keyboard
         } else if scene == "late" {
-            hangar.run = [hangarID, camera, keyboard, voice]
+            hangar.run = [camera, keyboard, voice, hangarID]
             hangar.jobs = [camera: .done, keyboard: .done, voice: .installing, hangarID: .waiting(asked: true)]
+            hangar.current = hangarID
         } else if scene == "states" {
             hangar.run = [voice, keyboard, camera, hangarID]
             hangar.jobs = [
-                voice: .done, keyboard: .failed("Stopped at 41%"), camera: .installing, hangarID: .waiting(asked: false),
+                voice: .done, keyboard: .failed("iOS didn't install it"), camera: .installing, hangarID: .waiting(asked: false),
             ]
         }
         return hangar
@@ -55,5 +61,11 @@ private extension Build {
         return Build(
             id: id, name: name, build: build, notes: notes, size: size, published: published, icon: icon,
             install: install, scheme: "\(id)-\(build)", phone: phone ?? self.phone, downloaded: downloaded ?? self.downloaded)
+    }
+
+    func named(_ name: String) -> Build {
+        Build(
+            id: id, name: name, build: build, notes: notes, size: size, published: published, icon: icon,
+            install: install, scheme: scheme, phone: phone, downloaded: downloaded)
     }
 }

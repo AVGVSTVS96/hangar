@@ -67,7 +67,7 @@ final class Hangar {
 
     private let server: URL?
     private var queue: [String] = []
-    private(set) var current: String?
+    var current: String?
     private var reopen: Set<String> = []
     private var requested: String?
     private var stream: Task<Void, Never>?
@@ -259,7 +259,7 @@ final class Hangar {
             }
             try? await Task.sleep(for: .seconds(1))
         }
-        jobs[id] = .failed("iOS didn't install \(app.build)")
+        jobs[id] = .failed("iOS didn't install it")
         report("the new build never answered its URL scheme in 2 minutes: iOS didn't install it", app)
     }
 
@@ -269,7 +269,7 @@ final class Hangar {
             if await UIApplication.shared.open(launch) {
                 report("opened", app)
             } else {
-                jobs[app.id] = .failed(app.isDownloaded ? "iOS didn't install \(app.build)" : "\(app.build) isn't on this phone")
+                jobs[app.id] = .failed(app.isDownloaded ? "iOS didn't install it" : "Not on this phone")
                 report("open failed: the build isn't installed", app)
             }
         }
