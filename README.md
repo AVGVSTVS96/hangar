@@ -5,7 +5,7 @@ Install and update your own iOS apps on your phone, over your tailnet. One tap i
 hangar is two parts:
 
 - **The server.** It holds the latest signed build of each app and serves it to iOS as an `itms-services` install. It also tells the phone how far each download has got.
-- **The iOS app.** It lists your apps, shows which have a newer build, and installs one or all of them. It shows the progress the whole way, and reopens an app that handed it its own update in the new build.
+- **The iOS app.** It lists your apps, shows which have a newer build, and installs one or all of them. It shows the progress the whole way. An app updated on its own reopens in its new build, which is also how hangar knows iOS installed it; after Update all, each app reads as downloaded until it opens.
 
 ```
 app's build script ── hangar put app.ipa ──▶ server ──▶ hangar on the phone
@@ -55,7 +55,7 @@ Builds live in `~/.local/share/hangar` (or `HANGAR_DIR`). The log names each dev
 | Route | |
 | --- | --- |
 | `GET /` | Install page for Safari |
-| `GET /apps` | Each app's latest build, and the build this phone last downloaded |
+| `GET /apps` | Each app's latest build, and the builds this phone last downloaded and last opened |
 | `GET /events` | Server-sent `apps` and `install` (download progress) events for this phone |
 | `GET /apps/<id>/<build>/manifest.plist` | The `itms-services` manifest |
 | `POST /log` | What the app saw, written to the server log |

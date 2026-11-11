@@ -27,7 +27,6 @@ export const appsDir = path.join(home, "apps");
 export const folder = (id: string) => path.join(appsDir, id);
 export const ipaPath = (id: string, build: number) => path.join(folder(id), `${build}.ipa`);
 export const iconPath = (id: string) => path.join(folder(id), "icon.png");
-const phonesPath = path.join(home, "phones.json");
 
 const writeAtomically = async (to: string, data: string | Uint8Array) => {
   await writeFile(`${to}.part`, data);
@@ -89,20 +88,27 @@ export const put = async (file: string, notes: string) => {
   return app;
 };
 
-let phones: z.infer<typeof Phones> | undefined;
+const phoneRecord = (file: string) => {
+  const at = path.join(home, file);
+  let all: z.infer<typeof Phones> | undefined;
 
-const loadPhones = async () => {
-  phones ??= (await readJson(phonesPath, Phones)) ?? {};
+  const load = async () => {
+    all ??= (await readJson(at, Phones)) ?? {};
 
-  return phones;
+    return all;
+  };
+
+  return {
+    get: async (ip: string) => (await load())[ip] ?? {},
+    set: async (ip: string, id: string, build: number) => {
+      const phones = await load();
+      phones[ip] = { ...phones[ip], [id]: build };
+      mkdirSync(home, { recursive: true });
+      writeFileSync(`${at}.part`, JSON.stringify(phones, null, 2));
+      renameSync(`${at}.part`, at);
+    },
+  };
 };
 
-export const phoneBuilds = async (ip: string) => (await loadPhones())[ip] ?? {};
-
-export const setPhoneBuild = async (ip: string, id: string, build: number) => {
-  const all = await loadPhones();
-  all[ip] = { ...all[ip], [id]: build };
-  mkdirSync(home, { recursive: true });
-  writeFileSync(`${phonesPath}.part`, JSON.stringify(all, null, 2));
-  renameSync(`${phonesPath}.part`, phonesPath);
-};
+export const opened = phoneRecord("phones.json");
+export const downloaded = phoneRecord("downloads.json");

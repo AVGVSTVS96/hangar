@@ -7,7 +7,6 @@ struct AppsView: View {
     @State private var width: CGFloat = 0
     private var margin: CGFloat { width >= 600 ? 20 : 16 }
     private var columns: Int { width - 2 * margin >= 732 ? 2 : 1 }
-    private var columnWidth: CGFloat { (width - 2 * margin - CGFloat(columns - 1) * 12) / CGFloat(columns) }
 
     var body: some View {
         NavigationStack {
@@ -30,9 +29,7 @@ struct AppsView: View {
                             }
                         } header: {
                             UpdateAll()
-                                .frame(maxWidth: columns > 1 ? columnWidth : .infinity)
                                 .padding(.top, 6)
-                                .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(Color(.systemGroupedBackground))
                         }
                     }
@@ -42,8 +39,9 @@ struct AppsView: View {
                     .animation(.snappy, value: hangar.shown.map(\.id))
                 }
                 .onGeometryChange(for: CGFloat.self, of: \.size.width) { width = $0 }
-                .onChange(of: hangar.focus, initial: true) { _, id in
-                    guard let id else { return }
+                .task(id: hangar.focus) {
+                    guard let id = hangar.focus else { return }
+                    try? await Task.sleep(for: .milliseconds(150))
                     withAnimation(.snappy) { scroller.scrollTo(id) }
                 }
             }
@@ -54,8 +52,8 @@ struct AppsView: View {
             .overlay {
                 if hangar.loaded && hangar.apps.isEmpty {
                     ContentUnavailableView(
-                        "No apps yet", systemImage: "square.and.arrow.down",
-                        description: Text("An app shows up here once a build of it is put on hangar."))
+                        "Put a build on hangar", systemImage: "square.and.arrow.down",
+                        description: Text("Each app shows up here with its first build."))
                 }
             }
         }
@@ -63,13 +61,15 @@ struct AppsView: View {
 
     private var summary: String {
         if !hangar.loaded { return hangar.reachable ? "Connecting" : "Offline" }
-        if hangar.apps.isEmpty { return "Nothing to install" }
+        if hangar.apps.isEmpty { return "No apps yet" }
         if hangar.running {
             let total = hangar.run.count
             return total == 1 ? "Updating" : "Updating \(min(hangar.finished + 1, total)) of \(total)"
         }
         let count = hangar.updates.count
-        return count == 0 ? "Everything is up to date" : "\(count) new \(count == 1 ? "build" : "builds")"
+        let downloaded = hangar.apps.count(where: \.isDownloaded)
+        if count > 0 { return "\(count) new \(count == 1 ? "build" : "builds")" }
+        return downloaded > 0 ? "\(downloaded) to open" : "Everything is up to date"
     }
 }
 
@@ -108,8 +108,9 @@ private struct AppCard: View {
                         .monospacedDigit()
                         .foregroundStyle(isFailed ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
                         .contentTransition(.numericText())
-                        .lineLimit(2)
+                        .lineLimit(1)
                 }
+                .layoutPriority(1)
                 Spacer(minLength: 8)
                 Action(app: app, job: job)
             }
@@ -138,15 +139,16 @@ private struct AppCard: View {
         switch job {
         case .queued: return app.isHangar ? "Updates itself last" : "Up next"
         case .waiting(asked: false): return "Opening the install alert"
-        case .waiting(asked: true): return app.isHangar ? "Closes to update itself" : "Tap Install on the alert"
+        case .waiting(asked: true): return app.isHangar ? "Closes to update itself" : "Waiting for Install"
         case .downloading(let fraction):
             return "Downloading \(megabytes(fraction * Double(app.size))) of \(megabytes(Double(app.size))) MB"
-        case .installing: return "Installing build \(app.build)"
-        case .done: return "Updated to build \(app.build)"
+        case .installing: return "Installing \(app.build)"
+        case .done: return "Updated to \(app.build)"
         case .failed(let reason): return reason
         case nil: break
         }
-        guard let installed = app.installed else { return "Build \(app.build) · not installed" }
+        if app.isDownloaded { return "\(app.build) downloaded" }
+        guard let installed = app.installed else { return "Not installed" }
         return installed >= app.build ? "Build \(app.build)" : "\(installed) → \(app.build)"
     }
 }
@@ -164,12 +166,15 @@ private struct Action: View {
             case .downloading(let fraction): Ring(fraction: fraction)
             case .done:
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 30))
+                    .resizable()
+                    .frame(width: 28, height: 28)
                     .foregroundStyle(.green)
                     .transition(.scale.combined(with: .opacity))
             case .failed: pill("Retry") { hangar.install([app]) }.disabled(!hangar.reachable)
             case nil:
-                if !app.isCurrent {
+                if app.isDownloaded {
+                    pill("Open") { hangar.open(app) }
+                } else if !app.isCurrent {
                     pill(app.installed == nil ? "Install" : "Update") { hangar.install([app]) }.disabled(!hangar.reachable)
                 } else if !app.isHangar {
                     pill("Open") { hangar.open(app) }.tint(.secondary)
@@ -190,21 +195,21 @@ private struct Action: View {
 
 private struct Ring: View {
     let fraction: Double?
-    @State private var spin = false
 
     var body: some View {
-        ZStack {
-            Circle().stroke(.quaternary, lineWidth: 3)
-            Circle()
-                .trim(from: 0, to: fraction ?? 0.28)
-                .stroke(.tint, style: StrokeStyle(lineWidth: 3, lineCap: .round))
-                .rotationEffect(.degrees(spin ? 270 : -90))
-                .animation(.snappy, value: fraction)
+        TimelineView(.animation(paused: fraction != nil)) { context in
+            let turn = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 0.9) / 0.9
+            ZStack {
+                Circle().inset(by: 1.5).stroke(.quaternary, lineWidth: 3)
+                Circle()
+                    .inset(by: 1.5)
+                    .trim(from: 0, to: fraction ?? 0.28)
+                    .stroke(.tint, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .rotationEffect(.degrees(fraction == nil ? turn * 360 - 90 : -90))
+                    .animation(.snappy, value: fraction)
+            }
         }
         .frame(width: 28, height: 28)
-        .onAppear { spin = fraction == nil }
-        .onChange(of: fraction == nil) { _, indeterminate in spin = indeterminate }
-        .animation(fraction == nil ? .linear(duration: 0.9).repeatForever(autoreverses: false) : .default, value: spin)
     }
 }
 
@@ -283,8 +288,11 @@ private struct UpdateAll: View {
 
     private var label: String {
         let updates = hangar.updates
-        let verb = updates.contains { $0.installed != nil } ? "Update" : "Install"
-        return updates.count == 1 ? "\(verb) \(updates[0].name)" : "\(verb) all \(updates.count)"
+        let fresh = updates.count { $0.installed == nil }
+        if updates.count == 1 { return "\(fresh == 1 ? "Install" : "Update") \(updates[0].name)" }
+        if fresh == 0 { return "Update all \(updates.count)" }
+        if fresh == updates.count { return "Install all \(updates.count)" }
+        return "Install \(fresh), update \(updates.count - fresh)"
     }
 
     private var step: String {

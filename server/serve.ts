@@ -6,7 +6,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { z } from "zod";
 
-import { appsDir, getApp, iconPath, ipaPath, listApps, phoneBuilds, setPhoneBuild } from "./store.ts";
+import { appsDir, downloaded, getApp, iconPath, ipaPath, listApps, opened } from "./store.ts";
 import type { App } from "./store.ts";
 
 const base = (process.env.HANGAR_URL ?? "").replace(/\/$/u, "");
@@ -121,12 +121,13 @@ const send = (client: Client, event: "apps" | "install", data: PhoneApp[] | Inst
 };
 
 const appsFor = async (ip: string) => {
-  const phone = await phoneBuilds(ip);
+  const [phone, downloads] = await Promise.all([opened.get(ip), downloaded.get(ip)]);
 
   return (await listApps()).map((app) => ({
     ...app,
     icon: app.icon ? iconUrl(app) : null,
     install: install(app),
+    downloaded: downloads[app.id] ?? null,
     phone: phone[app.id] ?? null,
     scheme: `${app.id}-${app.build}`,
   }));
@@ -199,7 +200,7 @@ const sendIpa = (req: IncomingMessage, res: ServerResponse, app: App, ip: string
       pushInstall(ip, app, "downloaded", sent);
       void (async () => {
         log(ip, `downloaded ${what} (${megabytes(size)} in ${seconds}s): iOS installs it now`);
-        await setPhoneBuild(ip, app.id, app.build);
+        await downloaded.set(ip, app.id, app.build);
         await pushApps(ip);
       })();
     } else {
@@ -255,7 +256,7 @@ const report = async (req: IncomingMessage, res: ServerResponse, ip: string) => 
   log(ip, `hangar ${[event, id, build, detail].filter((part) => part !== undefined).join(" ")}`);
 
   if (event === "opened" && id !== undefined && build !== undefined) {
-    await setPhoneBuild(ip, id, build);
+    await opened.set(ip, id, build);
     await pushApps(ip);
   }
 

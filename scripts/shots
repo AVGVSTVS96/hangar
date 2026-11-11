@@ -37,7 +37,7 @@ while read -r screen hinge orientation display; do
   for scene in list run; do
     for appearance in light dark; do shoot "$screen" "$scene" "$appearance" "$display"; done
   done
-  [ "$screen" != folded-portrait ] || for scene in states current empty offline; do
+  [ "$screen" != folded-portrait ] || for scene in states late current empty offline connecting; do
     for appearance in light dark; do shoot "$screen" "$scene" "$appearance" "$display"; done
   done
 done <<SCREENS

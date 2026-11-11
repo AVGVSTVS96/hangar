@@ -8,14 +8,19 @@ enum Demo {
         let hangar = Hangar(server: nil)
         hangar.reachable = scene != "offline"
         switch scene {
+        case "connecting": break
         case "empty": hangar.show([])
-        case "current": hangar.show(apps.filter { !$0.isHangar }.map { $0.at(phone: $0.build) })
+        case "current": hangar.show(apps.filter { !$0.isHangar }.map { $0.with(phone: $0.build) })
+        case "states": hangar.show(apps.map { $0.name == "Span" ? $0.with(build: 5904, downloaded: 5904) : $0 })
         default: hangar.show(apps)
         }
         let voice = "com.example.voice", keyboard = "com.example.keyboard", camera = "com.example.camera"
         if scene == "run" {
             hangar.run = [keyboard, voice, camera, hangarID]
             hangar.jobs = [voice: .downloading(0.62), keyboard: .waiting(asked: true), camera: .queued, hangarID: .queued]
+        } else if scene == "late" {
+            hangar.run = [hangarID, camera, keyboard, voice]
+            hangar.jobs = [camera: .done, keyboard: .done, voice: .installing, hangarID: .waiting(asked: true)]
         } else if scene == "states" {
             hangar.run = [voice, keyboard, camera, hangarID]
             hangar.jobs = [
@@ -29,7 +34,8 @@ enum Demo {
         Build(
             id: id, name: name, build: build, notes: notes, size: 31_400_000,
             published: .now.addingTimeInterval(-hours * 3600), icon: nil,
-            install: URL(string: "itms-services://?action=download-manifest")!, scheme: "\(id)-\(build)", phone: phone)
+            install: URL(string: "itms-services://?action=download-manifest")!, scheme: "\(id)-\(build)", phone: phone,
+            downloaded: nil)
     }
 
     private static let apps = [
@@ -44,9 +50,10 @@ enum Demo {
 }
 
 private extension Build {
-    func at(phone: Int) -> Build {
-        Build(
+    func with(build: Int? = nil, phone: Int? = nil, downloaded: Int? = nil) -> Build {
+        let build = build ?? self.build
+        return Build(
             id: id, name: name, build: build, notes: notes, size: size, published: published, icon: icon,
-            install: install, scheme: scheme, phone: phone)
+            install: install, scheme: "\(id)-\(build)", phone: phone ?? self.phone, downloaded: downloaded ?? self.downloaded)
     }
 }
