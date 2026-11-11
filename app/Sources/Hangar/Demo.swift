@@ -7,14 +7,19 @@ enum Demo {
         let scene = arguments[at + 1]
         let hangar = Hangar(server: nil)
         hangar.reachable = scene != "offline"
-        hangar.show(scene == "empty" ? [] : apps)
+        switch scene {
+        case "empty": hangar.show([])
+        case "current": hangar.show(apps.filter { !$0.isHangar }.map { $0.at(phone: $0.build) })
+        default: hangar.show(apps)
+        }
+        let voice = "com.example.voice", keyboard = "com.example.keyboard", camera = "com.example.camera"
         if scene == "run" {
-            hangar.run = ["com.example.voice", "com.example.keyboard", "com.example.camera", hangarID]
+            hangar.run = [keyboard, voice, camera, hangarID]
+            hangar.jobs = [voice: .downloading(0.62), keyboard: .waiting(asked: true), camera: .queued, hangarID: .queued]
+        } else if scene == "states" {
+            hangar.run = [voice, keyboard, camera, hangarID]
             hangar.jobs = [
-                "com.example.voice": .downloading(0.62),
-                "com.example.keyboard": .waiting(asked: true),
-                "com.example.camera": .queued,
-                hangarID: .queued,
+                voice: .done, keyboard: .failed("The download stopped at 41%"), camera: .installing, hangarID: .waiting(asked: false),
             ]
         }
         return hangar
@@ -36,4 +41,12 @@ enum Demo {
     ]
 
     private static let hangarID = Bundle.main.bundleIdentifier ?? "com.shahidy.hangar"
+}
+
+private extension Build {
+    func at(phone: Int) -> Build {
+        Build(
+            id: id, name: name, build: build, notes: notes, size: size, published: published, icon: icon,
+            install: install, scheme: scheme, phone: phone)
+    }
 }

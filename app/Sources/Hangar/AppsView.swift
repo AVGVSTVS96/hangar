@@ -6,25 +6,32 @@ struct AppsView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 12) {
-                    if let caption {
-                        Text(caption).font(.footnote).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+            ScrollViewReader { scroller in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if let caption {
+                            Text(caption).font(.footnote).foregroundStyle(.secondary)
+                        }
+                        if !hangar.reachable { Offline() }
+                        UpdateAll()
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 360), spacing: 12, alignment: .top)], spacing: 12) {
+                            ForEach(hangar.shown) { AppCard(app: $0).id($0.id) }
+                        }
                     }
-                    if !hangar.reachable { Offline() }
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 12)], spacing: 12) {
-                        ForEach(hangar.shown) { AppCard(app: $0) }
-                    }
+                    .padding(.horizontal, margin)
+                    .padding(.bottom, 24)
+                    .animation(.snappy, value: hangar.reachable)
+                    .animation(.snappy, value: hangar.shown.map(\.id))
                 }
-                .padding(.horizontal)
-                .padding(.bottom, 24)
-                .animation(.snappy, value: hangar.reachable)
+                .onChange(of: hangar.focus, initial: true) { _, id in
+                    guard let id else { return }
+                    withAnimation(.snappy) { scroller.scrollTo(id) }
+                }
             }
-            .safeAreaBar(edge: .bottom) { UpdateAll() }
-            .scrollEdgeEffectStyle(.hard, for: .bottom)
             .background(Color(.systemGroupedBackground))
             .navigationTitle("hangar")
             .navigationSubtitle(summary)
+            .toolbarTitleDisplayMode(.inlineLarge)
             .overlay {
                 if hangar.loaded && hangar.apps.isEmpty {
                     ContentUnavailableView(
@@ -35,21 +42,29 @@ struct AppsView: View {
         }
     }
 
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    private var margin: CGFloat { sizeClass == .regular ? 20 : 16 }
+
     private var summary: String {
-        let count = hangar.updates.count
         if !hangar.loaded { return hangar.reachable ? "Connecting" : "" }
+        if hangar.apps.isEmpty { return "" }
+        if hangar.running {
+            let total = hangar.run.count
+            return total == 1 ? "Updating" : "Updating \(min(hangar.finished + 1, total)) of \(total)"
+        }
+        let count = hangar.updates.count
         return count == 0 ? "Everything is up to date" : "\(count) new \(count == 1 ? "build" : "builds")"
     }
 }
 
 private struct Offline: View {
     var body: some View {
-        Label("Can't reach hangar's server. Is Tailscale on?", systemImage: "wifi.slash")
+        Label("Can't reach hangar. Is Tailscale on?", systemImage: "wifi.slash")
             .font(.subheadline.weight(.medium))
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(16)
-            .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 22))
+            .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 26))
             .transition(.opacity.combined(with: .move(edge: .top)))
     }
 }
@@ -67,9 +82,9 @@ private struct AppCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(app.name).font(.headline)
-                        Text(app.published, format: .relative(presentation: .named, unitsStyle: .abbreviated))
+                        Text(app.published, format: .relative(presentation: .named, unitsStyle: .narrow))
                             .font(.caption)
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(.secondary)
                     }
                     .lineLimit(1)
                     Text(status)
@@ -91,7 +106,7 @@ private struct AppCard: View {
             }
         }
         .padding(16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 26))
         .animation(.snappy, value: job)
         .sensoryFeedback(.success, trigger: job == .done) { _, done in done }
@@ -115,7 +130,7 @@ private struct AppCard: View {
         case .failed(let reason): return reason
         case nil: break
         }
-        guard let installed = app.installed else { return "Build \(app.build)" }
+        guard let installed = app.installed else { return "\(app.build) · not installed" }
         return installed >= app.build ? "\(app.build) · up to date" : "\(installed) → \(app.build)"
     }
 }
@@ -136,12 +151,12 @@ private struct Action: View {
                     .font(.system(size: 30))
                     .foregroundStyle(.green)
                     .transition(.scale.combined(with: .opacity))
-            case .failed: pill("Retry") { hangar.install([app]) }
+            case .failed: pill("Retry") { hangar.install([app]) }.disabled(!hangar.reachable)
             case nil:
                 if !app.isCurrent {
-                    pill(app.installed == nil ? "Install" : "Update") { hangar.install([app]) }
+                    pill(app.installed == nil ? "Install" : "Update") { hangar.install([app]) }.disabled(!hangar.reachable)
                 } else if !app.isHangar {
-                    pill("Open") { hangar.open(app) }
+                    pill("Open") { hangar.open(app) }.tint(.secondary)
                 }
             }
         }
@@ -213,46 +228,58 @@ private struct UpdateAll: View {
     @Environment(Hangar.self) private var hangar
 
     var body: some View {
-        Group {
+        if hangar.running || !hangar.updates.isEmpty {
+            Button {
+                hangar.install(hangar.updates)
+            } label: {
+                Text(hangar.running ? step : label)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .foregroundStyle(hangar.running ? AnyShapeStyle(.primary) : AnyShapeStyle(.white))
+                    .contentTransition(.opacity)
+                    .padding(.horizontal, 20)
+                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .background { fill }
+                    .clipShape(.capsule)
+            }
+            .buttonStyle(.plain)
+            .allowsHitTesting(!hangar.running)
+            .disabled(!hangar.running && !hangar.reachable)
+            .sensoryFeedback(.impact(weight: .medium), trigger: hangar.running) { _, running in running }
+            .animation(.snappy, value: hangar.running)
+            .animation(.snappy, value: hangar.fraction)
+            .transition(.opacity)
+        }
+    }
+
+    private var fill: some View {
+        ZStack(alignment: .leading) {
             if hangar.running {
-                progress
-            } else if !hangar.updates.isEmpty {
-                Button {
-                    hangar.install(hangar.updates)
-                } label: {
-                    Text(label).font(.headline).frame(maxWidth: .infinity).padding(.vertical, 6)
+                Color(.secondarySystemGroupedBackground)
+                GeometryReader { size in
+                    Rectangle().fill(.tint.opacity(0.22)).frame(width: size.size.width * hangar.fraction)
                 }
-                .buttonStyle(.glassProminent)
-                .sensoryFeedback(.impact(weight: .medium), trigger: hangar.running)
+            } else {
+                Rectangle().fill(.tint)
             }
         }
-        .frame(maxWidth: 420)
-        .padding(.horizontal, 20)
-        .padding(.bottom, 8)
-        .animation(.snappy, value: hangar.running)
     }
 
     private var label: String {
-        let count = hangar.updates.count
-        let verb = hangar.updates.allSatisfy { $0.installed == nil } ? "Install" : "Update"
-        return count == 1 ? "\(verb) \(hangar.updates[0].name)" : "\(verb) \(count) apps"
+        let updates = hangar.updates
+        let verb = updates.allSatisfy { $0.installed != nil } ? "Update" : "Install"
+        return updates.count == 1 ? "\(verb) \(updates[0].name)" : "\(verb) all \(updates.count)"
     }
 
-    private var progress: some View {
-        let jobs = hangar.run.compactMap { hangar.jobs[$0] }
-        let finished = jobs.filter { !$0.isActive }.count
-        let fraction = jobs.isEmpty ? 0 : jobs.map(\.fraction).reduce(0, +) / Double(jobs.count)
-        let total = hangar.run.count
-        return VStack(spacing: 8) {
-            Text(total == 1 ? "Updating" : "Updating \(min(finished + 1, total)) of \(total)")
-                .font(.subheadline.weight(.semibold))
-                .monospacedDigit()
-                .contentTransition(.numericText())
-            ProgressView(value: fraction).tint(.accentColor)
+    private var step: String {
+        guard let id = hangar.focus, let app = hangar.apps.first(where: { $0.id == id }) else { return "Updating" }
+        switch hangar.jobs[id] {
+        case .queued: return app.isHangar ? "hangar updates itself last" : "\(app.name) is up next"
+        case .waiting(asked: false): return "Asking iOS to install \(app.name)"
+        case .waiting(asked: true): return "Tap Install to update \(app.name)"
+        case .downloading: return "Downloading \(app.name)"
+        case .installing: return "Installing \(app.name)"
+        case .done, .failed, nil: return "Updating"
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 14)
-        .glassEffect(.regular, in: .capsule)
-        .animation(.snappy, value: fraction)
     }
 }

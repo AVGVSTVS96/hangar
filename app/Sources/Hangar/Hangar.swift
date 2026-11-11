@@ -65,7 +65,7 @@ final class Hangar {
 
     private let server: URL?
     private var queue: [String] = []
-    private var current: String?
+    private(set) var current: String?
     private var reopen: String?
     private var requested: String?
     private var stream: Task<Void, Never>?
@@ -78,6 +78,9 @@ final class Hangar {
     var updates: [Build] { apps.filter { !$0.isCurrent } }
     var shown: [Build] { apps.filter { !$0.isHangar || !$0.isCurrent || jobs[$0.id] != nil } }
     var running: Bool { run.contains { jobs[$0]?.isActive == true } }
+    var focus: String? { current ?? run.first { jobs[$0]?.isActive == true } }
+    var finished: Int { run.count { jobs[$0]?.isActive != true } }
+    var fraction: Double { run.isEmpty ? 0 : run.map { jobs[$0]?.fraction ?? 1 }.reduce(0, +) / Double(run.count) }
 
     func connect() {
         guard let server, Date.now.timeIntervalSince(heard) > 25 else { return }
@@ -128,7 +131,13 @@ final class Hangar {
     }
 
     func show(_ apps: [Build]) {
-        self.apps = apps.sorted { ($0.isHangar ? 1 : 0, $0.name) < ($1.isHangar ? 1 : 0, $1.name) }
+        let order = self.apps.map(\.id)
+        if running, apps.allSatisfy({ order.contains($0.id) }) {
+            self.apps = apps.sorted { order.firstIndex(of: $0.id)! < order.firstIndex(of: $1.id)! }
+        } else {
+            let rank = { (app: Build) in app.isHangar ? 2 : app.isCurrent ? 1 : 0 }
+            self.apps = apps.sorted { (rank($0), $0.name) < (rank($1), $1.name) }
+        }
         loaded = true
         for app in apps where app.isCurrent && jobs[app.id] == .installing {
             done(app.id)
