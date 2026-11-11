@@ -5,7 +5,7 @@ Install and update your own iOS apps on your phone, over your tailnet. One tap i
 hangar is two parts:
 
 - **The server.** It holds the latest signed build of each app and serves it to iOS as an `itms-services` install. It also tells the phone how far each download has got.
-- **The iOS app.** It lists your apps, shows which have a newer build, and installs one or all of them. It shows the progress the whole way, and reopens an app in its new build.
+- **The iOS app.** It lists your apps, shows which have a newer build, and installs one or all of them. It shows the progress the whole way, and reopens an app that handed it its own update in the new build.
 
 ```
 app's build script ── hangar put app.ipa ──▶ server ──▶ hangar on the phone
@@ -20,10 +20,11 @@ app's build script ── hangar put app.ipa ──▶ server ──▶ hangar o
 bin/hangar put path/to/App.ipa --notes 'Photos in Chats'
 ```
 
-hangar reads the bundle id, name, build and icon from the `.ipa`. Nothing about an app is configured in hangar. `put` refuses a build that breaks either of these rules, and says why:
+hangar reads the bundle id, name, build and icon from the `.ipa`. Nothing about an app is configured in hangar. `put` refuses a build that breaks any of these rules, and says why:
 
 1. `CFBundleVersion` is a whole number that goes up with every build.
 2. The app registers the URL scheme `<bundle id>-<CFBundleVersion>`, like `com.example.app-1017`.
+3. The `.ipa` holds no macOS metadata (`._*` or `__MACOSX`), which sits outside the app's signature. Zip with `ditto -c -k --norsrc --noextattr --keepParent Payload App.ipa`.
 
 Only that exact build answers that scheme. hangar opens it once iOS has installed the build, which tells hangar the install is done and launches the new build, using public API only.
 
