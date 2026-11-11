@@ -55,11 +55,26 @@ const pickIcon = (info: Info, files: Record<string, Uint8Array>) => {
   return icons.toSorted((a, b) => width(b) - width(a))[0];
 };
 
+const macMetadata = /(?:^|\/)(?:\._|__MACOSX\/)/u;
+
 export const readIpa = (bytes: Uint8Array): Ipa => {
+  let metadata: string | undefined;
+
   const files = unzipSync(bytes, {
-    filter: (file) =>
-      topLevel.test(file.name) && (file.name.endsWith("/Info.plist") || file.name.endsWith(".png")),
+    filter: (file) => {
+      if (macMetadata.test(file.name)) {
+        metadata ??= file.name;
+      }
+
+      return topLevel.test(file.name) && (file.name.endsWith("/Info.plist") || file.name.endsWith(".png"));
+    },
   });
+
+  if (metadata !== undefined) {
+    throw new Error(
+      `it holds macOS metadata files like ${metadata}, which iOS can reject as files outside the signature. Zip it with \`ditto -c -k --norsrc --noextattr --keepParent Payload <app>.ipa\``,
+    );
+  }
 
   const plist = Object.entries(files).find(([path]) => path.endsWith("/Info.plist"))?.[1];
 

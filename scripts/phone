@@ -35,7 +35,7 @@ print(subprocess.run(['openssl', 'x509', '-inform', 'DER', '-noout', '-serial'],
 ssh mac 'rm -rf Developer/hangar-phone && mkdir -p Developer/hangar-phone'
 rsync -a xtool/Hangar.app mac:Developer/hangar-phone/
 ssh mac sh -s "$serial" Developer/hangar-phone/Hangar.app < "$repo/scripts/resign"
-ssh mac 'cd Developer/hangar-phone && mkdir Payload && cp -R Hangar.app Payload/ && ditto -c -k --keepParent Payload hangar.ipa'
+ssh mac 'cd Developer/hangar-phone && mkdir Payload && cp -R Hangar.app Payload/ && ditto -c -k --norsrc --noextattr --keepParent Payload hangar.ipa'
 scp -q mac:Developer/hangar-phone/hangar.ipa hangar.ipa
 "$repo/bin/hangar" put hangar.ipa --notes "$(git -C "$repo" log -1 --format=%s)"
 echo "hangar $number is on $HANGAR_URL/: tap Install there in Safari on the phone"
