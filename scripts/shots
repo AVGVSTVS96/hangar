@@ -1,0 +1,50 @@
+#!/bin/sh
+# Builds hangar for the simulator on the Mac and screenshots it on the iPhone Duo with made-up apps (Demo.swift):
+# folded and open, light and dark, into <folder> on this machine. The open screen comes from unfolding the simulator
+# with scripts/devicehub.c; its own upright is landscape, so Device Hub's portrait shows it in landscape.
+# Usage: scripts/shots <folder>
+set -e
+out=${1:?usage: scripts/shots <folder>}
+cd "$(dirname "$0")/.."
+rsync -a --delete --exclude .build --exclude xtool --exclude build app/ scripts/devicehub.c mac:Developer/hangar-app/
+ssh mac sh -s <<'MAC'
+set -e
+cd ~/Developer/hangar-app
+xcodegen -q
+xcodebuild -project Hangar.xcodeproj -scheme Hangar -destination 'generic/platform=iOS Simulator' -derivedDataPath build build -quiet
+[ build/devicehub -nt devicehub.c ] || xcrun -sdk iphonesimulator clang -arch arm64 -mios-simulator-version-min=27.0 -O2 \
+  -o build/devicehub devicehub.c -framework IOKit -framework CoreFoundation
+codesign -f -s - build/devicehub 2>/dev/null
+id=$(xcrun simctl list devices | awk -F '[()]' '/hangar Duo/ {print $2; exit}')
+[ -n "$id" ] || id=$(xcrun simctl create "hangar Duo" com.apple.CoreSimulator.SimDeviceType.iPhone-Duo)
+xcrun simctl boot "$id" 2>/dev/null || true
+xcrun simctl bootstatus "$id" -b >/dev/null
+xcrun simctl install "$id" build/Build/Products/Debug-iphonesimulator/Hangar.app
+xcrun simctl status_bar "$id" override --time 9:41 --batteryState charged --batteryLevel 100
+rm -rf shots && mkdir shots
+shoot() {
+  xcrun simctl ui "$id" appearance "$3"
+  xcrun simctl terminate "$id" com.shahidy.hangar 2>/dev/null || true
+  xcrun simctl launch "$id" com.shahidy.hangar -demo "$2" >/dev/null
+  sleep 3
+  xcrun simctl io "$id" screenshot --display="$4" "shots/$1-$2-$3.png" >/dev/null 2>&1
+}
+while read -r screen hinge orientation display; do
+  xcrun simctl spawn "$id" "$PWD/build/devicehub" hinge "$hinge"
+  sleep 3
+  xcrun simctl spawn "$id" "$PWD/build/devicehub" orientation "$orientation"
+  sleep 2
+  for scene in list run; do
+    for appearance in light dark; do shoot "$screen" "$scene" "$appearance" "$display"; done
+  done
+  [ "$screen" != folded-portrait ] || { shoot "$screen" empty light "$display"; shoot "$screen" offline light "$display"; }
+done <<SCREENS
+folded-portrait 0 portrait 1
+open-landscape 180 portrait 3
+open-portrait 180 landscape-right 3
+SCREENS
+xcrun simctl shutdown "$id"
+MAC
+mkdir -p "$out"
+rsync -a mac:Developer/hangar-app/shots/ "$out/"
+ls "$out"

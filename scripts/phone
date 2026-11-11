@@ -1,0 +1,41 @@
+#!/bin/sh
+# Builds hangar as committed here with xtool on this server, signs it on the Mac with the team's development certificate
+# (xtool only makes the profile and signs ad hoc; scripts/resign signs where the key is), and puts it on hangar, so
+# hangar installs and updates itself like any other app. Never let xtool revoke a certificate to make its own: that
+# breaks everything the Mac signs (stdin is closed, so it can't ask). The build number is the commit count, and the
+# server's address comes from ./config (HANGAR_URL).
+# Usage: scripts/phone
+set -e
+cd "$(dirname "$0")/.."
+repo=$PWD
+. ./config
+build=$HOME/.cache/hangar/build
+number=$(git rev-list --count HEAD)
+rm -rf "$build" && mkdir -p "$build"
+git archive HEAD app | tar -x -C "$build" --strip-components=1
+python3 - "$build/Info.plist" "$number" "$HANGAR_URL" <<'PY'
+import plistlib, sys
+path, number, url = sys.argv[1:]
+info = plistlib.load(open(path, "rb"))
+info["CFBundleVersion"] = number
+info["HangarURL"] = url
+info["CFBundleURLTypes"][0]["CFBundleURLSchemes"].append(f"com.shahidy.hangar-{number}")
+plistlib.dump(info, open(path, "wb"))
+PY
+cd "$build"
+TURN=hangar xtool dev build -c release --sign < /dev/null
+sdk=$(llvm-otool -l xtool/Hangar.app/Hangar | awk '/LC_BUILD_VERSION/ {b=1} b && $1 == "sdk" {print $2; exit}')
+[ "$(printf '%s\n27.1\n' "$sdk" | sort -V | head -1)" = 27.1 ] ||
+  { echo "hangar is linked against iOS SDK $sdk; below 27.1 the iPhone Duo runs it as an old iPhone app" >&2; exit 1; }
+serial=$(python3 -c "
+import glob, os, plistlib, subprocess
+path = max(glob.glob(os.path.expanduser('~/.config/xtool/data/??????????')), key=os.path.getmtime)
+der = plistlib.load(open(path, 'rb'))['certificate']
+print(subprocess.run(['openssl', 'x509', '-inform', 'DER', '-noout', '-serial'], input=der, capture_output=True).stdout.decode().split('=')[1].strip())")
+ssh mac 'rm -rf Developer/hangar-phone && mkdir -p Developer/hangar-phone'
+rsync -a xtool/Hangar.app mac:Developer/hangar-phone/
+ssh mac sh -s "$serial" Developer/hangar-phone/Hangar.app < "$repo/scripts/resign"
+ssh mac 'cd Developer/hangar-phone && mkdir Payload && cp -R Hangar.app Payload/ && ditto -c -k --keepParent Payload hangar.ipa'
+scp -q mac:Developer/hangar-phone/hangar.ipa hangar.ipa
+"$repo/bin/hangar" put hangar.ipa --notes "$(git -C "$repo" log -1 --format=%s)"
+echo "hangar $number is on $HANGAR_URL/: tap Install there in Safari on the phone"

@@ -1,0 +1,47 @@
+#!/bin/sh
+# Runs on the Mac (ssh mac sh -s <serial> <app, relative to $HOME> < scripts/resign): signs the app xtool provisioned
+# with the Mac's identity whose certificate has that serial number, with the entitlements its embedded profile grants.
+# xtool provisions for the Mac's development certificate but can't sign with it, since its key stays in the Mac's
+# login keychain. That keychain opens only in the login session, never over ssh, so the signing runs there as a
+# one-off launch agent, which no one sees.
+set -eu
+serial=$1
+app=$2
+identity=
+for hash in $(security find-identity -v -p codesigning | awk '/"Apple Development/ {print $2}'); do
+  security find-certificate -a -Z -p -c "Apple Development" | awk -v h="$hash" '/^SHA-1 hash:/ {on = $3 == h} on && !/^SHA-1/' |
+    openssl x509 -noout -serial 2>/dev/null | grep -qi "=$serial\$" && identity=$hash
+done
+[ -n "$identity" ] || { echo "the Mac's keychain has no signing identity with serial $serial" >&2; exit 1; }
+dir=$(mktemp -d /tmp/hangar-resign.XXXXXX)
+cat > "$dir/run" <<RUN
+#!/bin/sh
+cd "\$HOME/$app"
+security cms -D -i embedded.mobileprovision > "$dir/profile.plist" || exit 1
+/usr/bin/python3 -c '
+import plistlib, sys
+granted = plistlib.load(open(sys.argv[1], "rb"))["Entitlements"]
+keys = ("application-identifier", "com.apple.developer.team-identifier", "get-task-allow")
+entitlements = {k: granted[k] for k in keys if k in granted}
+entitlements["keychain-access-groups"] = [granted["application-identifier"]]
+plistlib.dump(entitlements, open(sys.argv[2], "wb"))' "$dir/profile.plist" "$dir/entitlements.plist" || exit 1
+codesign -f -s $identity --entitlements "$dir/entitlements.plist" --generate-entitlement-der . || exit 1
+codesign --verify --deep --strict .
+RUN
+chmod +x "$dir/run"
+label=com.shahidy.hangar.resign
+cat > "$dir/agent.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>Label</key><string>$label</string>
+<key>ProgramArguments</key><array><string>/bin/sh</string><string>-c</string><string>$dir/run > $dir/out 2>&amp;1; echo \$? > $dir/status</string></array>
+<key>RunAtLoad</key><true/></dict></plist>
+PLIST
+launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
+launchctl bootstrap "gui/$(id -u)" "$dir/agent.plist"
+while [ ! -f "$dir/status" ]; do sleep 1; done
+launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
+cat "$dir/out"
+status=$(cat "$dir/status")
+rm -rf "$dir"
+exit "$status"

@@ -170,6 +170,7 @@ const sendIpa = (req: IncomingMessage, res: ServerResponse, app: App, ip: string
 
   if (req.method === "HEAD") {
     log(ip, `checked ${what} before downloading it`);
+    pushInstall(ip, app, "downloading", start);
     res.end();
 
     return;
