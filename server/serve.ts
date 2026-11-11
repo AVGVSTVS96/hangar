@@ -263,6 +263,17 @@ const report = async (req: IncomingMessage, res: ServerResponse, ip: string) => 
   json(res, { ok: true });
 };
 
+const Running = z.object({ build: z.number().int(), id: z.string() });
+
+const running = async (req: IncomingMessage, res: ServerResponse, ip: string) => {
+  const { id, build } = Running.parse(JSON.parse(await readBody(req)));
+  const app = await getApp(id);
+  log(ip, `${app?.name ?? id} ${build} is running`);
+  await opened.set(ip, id, build);
+  await pushApps(ip);
+  json(res, { ok: true });
+};
+
 const appFile = async (req: IncomingMessage, res: ServerResponse, ip: string, path: string) => {
   const [, kind, id, file, rest] = path.split("/");
   const app = kind === "apps" && id !== undefined ? await getApp(id) : undefined;
@@ -314,6 +325,8 @@ const route = async (req: IncomingMessage, res: ServerResponse) => {
     await events(req, res, ip);
   } else if (path === "/log" && req.method === "POST") {
     await report(req, res, ip);
+  } else if (path === "/running" && req.method === "POST") {
+    await running(req, res, ip);
   } else {
     await appFile(req, res, ip, path);
   }

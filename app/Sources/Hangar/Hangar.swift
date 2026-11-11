@@ -68,7 +68,8 @@ final class Hangar {
     private let server: URL?
     private var queue: [String] = []
     var current: String?
-    private var reopen: Set<String> = []
+    private var reopen: String?
+    private var catchUp = false
     private var requested: String?
     private var stream: Task<Void, Never>?
     private var heard = Date.distantPast
@@ -95,6 +96,7 @@ final class Hangar {
                     guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
                     reachable = true
                     failures = 0
+                    catchUp = true
                     var event = ""
                     for try await line in bytes.lines {
                         heard = .now
@@ -127,6 +129,7 @@ final class Hangar {
     private func receive(_ event: String, _ data: Data) {
         if event == "apps", let apps = try? Self.decoder.decode([Build].self, from: data) {
             show(apps)
+            if catchUp { catchUpMissed() }
         } else if event == "install", let progress = try? Self.decoder.decode(Progress.self, from: data) {
             receive(progress)
         }
@@ -141,8 +144,12 @@ final class Hangar {
             self.apps = apps.sorted { (rank($0), $0.name) < (rank($1), $1.name) }
         }
         loaded = true
-        for app in apps where jobs[app.id] == .installing && !reopen.contains(app.id) && (app.isCurrent || app.isDownloaded) {
-            jobs[app.id] = nil
+        for app in apps where jobs[app.id] == .installing {
+            if app.isCurrent {
+                done(app.id)
+            } else if app.isDownloaded && app.id != reopen {
+                jobs[app.id] = nil
+            }
         }
         startRequested()
     }
@@ -157,14 +164,13 @@ final class Hangar {
             moveOn(from: id)
         case .downloaded:
             jobs[id] = .installing
-            Task { await finish(id) }
             next()
         case .stopped:
             let percent = (Double(progress.sent) / Double(max(progress.size, 1))).formatted(.percent.precision(.fractionLength(0)))
             jobs[id] = .failed("Stopped at \(percent)")
-            reopen.remove(id)
             moveOn(from: id)
         }
+        settle()
     }
 
     private func report(_ event: String, _ app: Build, _ detail: String? = nil) {
@@ -181,7 +187,7 @@ final class Hangar {
     func install(_ targets: [Build]) {
         let fresh = targets.filter { jobs[$0.id]?.isActive != true }
         guard !fresh.isEmpty else { return }
-        if fresh.count == 1, !running, !fresh[0].isHangar { reopen.insert(fresh[0].id) }
+        reopen = fresh.count == 1 && !fresh[0].isHangar ? fresh[0].id : nil
         if !running { run = [] }
         for app in fresh {
             jobs[app.id] = .queued
@@ -232,7 +238,6 @@ final class Hangar {
 
     private func giveUp(on id: String, after reason: String) {
         guard current == id, case .waiting(let asked) = jobs[id], let app = app(id) else { return }
-        reopen.remove(id)
         if asked {
             jobs[id] = nil
             run.removeAll { $0 == id }
@@ -242,13 +247,45 @@ final class Hangar {
             report("iOS never asked for the manifest (\(reason))", app)
         }
         moveOn(from: id)
+        settle()
     }
 
-    private func finish(_ id: String) async {
-        guard reopen.contains(id), let app = app(id), let launch = app.launch else { return }
-        defer { reopen.remove(id) }
+    private func catchUpMissed() {
+        catchUp = false
+        for app in apps {
+            switch jobs[app.id] {
+            case .downloading, .installing: break
+            default: continue
+            }
+            if app.isCurrent {
+                done(app.id)
+            } else if app.isDownloaded {
+                jobs[app.id] = app.id == reopen ? .installing : nil
+            } else {
+                continue
+            }
+            if current == app.id { current = nil }
+        }
+        next()
+        settle()
+    }
+
+    private func settle() {
+        let pending = run.contains { id in
+            switch jobs[id] {
+            case .queued, .waiting, .downloading: true
+            default: false
+            }
+        }
+        guard !pending, let id = reopen, jobs[id] == .installing else { return }
+        reopen = nil
+        Task { await bringBack(id) }
+    }
+
+    private func bringBack(_ id: String) async {
+        guard let app = app(id), let launch = app.launch else { return }
         var waited = 0
-        while waited < 120 {
+        while waited < 120, jobs[id] == .installing {
             if UIApplication.shared.applicationState == .active {
                 if await UIApplication.shared.open(launch) {
                     done(id)
@@ -259,6 +296,7 @@ final class Hangar {
             }
             try? await Task.sleep(for: .seconds(1))
         }
+        guard jobs[id] == .installing else { return }
         jobs[id] = .failed("iOS didn't install it")
         report("the new build never answered its URL scheme in 2 minutes: iOS didn't install it", app)
     }
@@ -292,7 +330,6 @@ final class Hangar {
     private func startRequested() {
         guard let id = requested, let app = app(id) else { return }
         requested = nil
-        reopen.insert(id)
         report("update asked for by the app", app)
         install([app])
     }

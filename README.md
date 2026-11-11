@@ -5,7 +5,7 @@ Install and update your own iOS apps on your phone, over your tailnet. One tap i
 hangar is two parts:
 
 - **The server.** It holds the latest signed build of each app and serves it to iOS as an `itms-services` install. It also tells the phone how far each download has got.
-- **The iOS app.** It lists your apps, shows which have a newer build, and installs one or all of them. It shows the progress the whole way. An app updated on its own reopens in its new build, which is also how hangar knows iOS installed it; after Update all, each app reads as downloaded until it opens.
+- **The iOS app.** It lists your apps, shows which have a newer build, and installs one or all of them. It shows the progress the whole way, stays on screen until every download is done, then reopens the last app you tapped in its new build. hangar calls an app updated only once its new build has run.
 
 ```
 app's build script ── hangar put app.ipa ──▶ server ──▶ hangar on the phone
@@ -41,6 +41,22 @@ if await UIApplication.shared.open(URL(string: "hangar://update/com.example.app"
 
 hangar installs the latest build. iOS closes the old one, and hangar opens the new build when it's ready.
 
+## Tell hangar which build runs
+
+hangar only knows a build is installed once it has run. An app that tells hangar's server which build it runs, each time it comes to the front, shows as up to date even when you open it yourself:
+
+```swift
+// HangarURL is hangar's address, put in the app's Info.plist at build time
+if let base = Bundle.main.object(forInfoDictionaryKey: "HangarURL") as? String, let url = URL(string: base + "/running"),
+   let build = Int(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "") {
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "content-type")
+    request.httpBody = try? JSONSerialization.data(withJSONObject: ["id": Bundle.main.bundleIdentifier ?? "", "build": build])
+    URLSession.shared.dataTask(with: request).resume()
+}
+```
+
 ## Run the server
 
 ```sh
@@ -59,6 +75,7 @@ Builds live in `~/.local/share/hangar` (or `HANGAR_DIR`). The log names each dev
 | `GET /events` | Server-sent `apps` and `install` (download progress) events for this phone |
 | `GET /apps/<id>/<build>/manifest.plist` | The `itms-services` manifest |
 | `POST /log` | What the app saw, written to the server log |
+| `POST /running` | `{"id", "build"}`: the build an app runs on this phone |
 
 ## Build the app
 
