@@ -13,13 +13,15 @@ struct AppsView: View {
                     }
                     if !hangar.reachable { Offline() }
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 12)], spacing: 12) {
-                        ForEach(hangar.apps) { AppCard(app: $0) }
+                        ForEach(hangar.shown) { AppCard(app: $0) }
                     }
                 }
                 .padding(.horizontal)
                 .padding(.bottom, 24)
                 .animation(.snappy, value: hangar.reachable)
             }
+            .safeAreaBar(edge: .bottom) { UpdateAll() }
+            .scrollEdgeEffectStyle(.hard, for: .bottom)
             .background(Color(.systemGroupedBackground))
             .navigationTitle("hangar")
             .navigationSubtitle(summary)
@@ -30,7 +32,6 @@ struct AppsView: View {
                         description: Text("An app shows up here once a build of it is put on hangar."))
                 }
             }
-            .safeAreaInset(edge: .bottom) { UpdateAll() }
         }
     }
 

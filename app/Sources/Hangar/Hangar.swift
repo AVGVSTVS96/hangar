@@ -76,8 +76,8 @@ final class Hangar {
     }
 
     var updates: [Build] { apps.filter { !$0.isCurrent } }
+    var shown: [Build] { apps.filter { !$0.isHangar || !$0.isCurrent || jobs[$0.id] != nil } }
     var running: Bool { run.contains { jobs[$0]?.isActive == true } }
-
 
     func connect() {
         guard let server, Date.now.timeIntervalSince(heard) > 25 else { return }
@@ -166,7 +166,6 @@ final class Hangar {
         Task { _ = try? await URLSession.shared.data(for: request) }
     }
 
-
     func install(_ targets: [Build]) {
         let fresh = targets.filter { jobs[$0.id]?.isActive != true }
         guard !fresh.isEmpty else { return }
@@ -199,7 +198,7 @@ final class Hangar {
         }
         Task {
             try? await Task.sleep(for: .seconds(45))
-            giveUp(on: id, after: "45s")
+            if jobs[id] == .waiting(asked: false) { giveUp(on: id, after: "45s") }
         }
     }
 
@@ -270,7 +269,6 @@ final class Hangar {
             if jobs[id] == .done { jobs[id] = nil }
         }
     }
-
 
     func handle(_ url: URL) {
         guard url.scheme == "hangar", url.host() == "update", let id = url.pathComponents.dropFirst().first else { return }

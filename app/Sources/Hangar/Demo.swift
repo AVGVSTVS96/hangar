@@ -9,11 +9,12 @@ enum Demo {
         hangar.reachable = scene != "offline"
         hangar.show(scene == "empty" ? [] : apps)
         if scene == "run" {
-            hangar.run = ["com.example.voice", "com.example.keyboard", "com.example.camera"]
+            hangar.run = ["com.example.voice", "com.example.keyboard", "com.example.camera", hangarID]
             hangar.jobs = [
                 "com.example.voice": .downloading(0.62),
                 "com.example.keyboard": .waiting(asked: true),
                 "com.example.camera": .queued,
+                hangarID: .queued,
             ]
         }
         return hangar
@@ -31,6 +32,8 @@ enum Demo {
         app("com.example.keyboard", "Keyboard", 1017, phone: 1009, hours: 2, "Photos in Chats. The skin-tone popup fits on the folded screen."),
         app("com.example.camera", "Camera", 88, phone: nil, hours: 26, "First build."),
         app("com.example.span", "Span", 5903, phone: 5903, hours: 30, ""),
-        app(Bundle.main.bundleIdentifier ?? "com.shahidy.hangar", "hangar", Hangar.ownBuild, phone: nil, hours: 50, ""),
+        app(hangarID, "hangar", Hangar.ownBuild + 1, phone: nil, hours: 50, "Shows each download as it goes."),
     ]
+
+    private static let hangarID = Bundle.main.bundleIdentifier ?? "com.shahidy.hangar"
 }
