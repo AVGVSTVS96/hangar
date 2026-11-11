@@ -145,13 +145,13 @@ private struct AppCard: View {
         case .waiting(asked: true): return app.isHangar ? "Closes to update itself" : "Waiting for Install"
         case .downloading(let fraction):
             return "Downloading \(megabytes(fraction * Double(app.size))) of \(megabytes(Double(app.size))) MB"
-        case .installing: return "Installing \(app.build)"
+        case .installing: return "Updating to \(app.build)"
         case .done: return "Updated to \(app.build)"
         case .failed(let reason): return reason
         case nil: break
         }
         if app.isDownloaded { return "Got build \(app.build)" }
-        guard let installed = app.installed else { return "Not installed" }
+        guard let installed = app.installed else { return "Build \(app.build)" }
         return installed >= app.build ? "Build \(app.build)" : "\(installed) → \(app.build)"
     }
 }
@@ -178,7 +178,7 @@ private struct Action: View {
                 if app.isDownloaded {
                     pill("Open") { hangar.open(app) }
                 } else if !app.isCurrent {
-                    pill(app.installed == nil ? "Install" : "Update") { hangar.install([app]) }.disabled(!hangar.reachable)
+                    pill("Update") { hangar.install([app]) }.disabled(!hangar.reachable)
                 } else if !app.isHangar {
                     pill("Open") { hangar.open(app) }.tint(.secondary)
                 }
@@ -294,21 +294,17 @@ private struct UpdateAll: View {
 
     private var label: String {
         let updates = hangar.updates
-        let fresh = updates.count { $0.installed == nil }
-        if updates.count == 1 { return "\(fresh == 1 ? "Install" : "Update") \(updates[0].name)" }
-        if fresh == 0 { return "Update all \(updates.count)" }
-        if fresh == updates.count { return "Install all \(updates.count)" }
-        return "Install \(fresh), update \(updates.count - fresh)"
+        return updates.count == 1 ? "Update \(updates[0].name)" : "Update all \(updates.count)"
     }
 
     private var step: String {
         guard let id = hangar.focus, let app = hangar.apps.first(where: { $0.id == id }) else { return "Updating" }
         switch hangar.jobs[id] {
         case .queued: return app.isHangar ? "hangar updates itself last" : "\(app.name) is up next"
-        case .waiting(asked: false): return "Asking iOS to install \(app.name)"
+        case .waiting(asked: false): return "Asking iOS to update \(app.name)"
         case .waiting(asked: true): return "Tap Install for \(app.name)"
         case .downloading: return "Downloading \(app.name)"
-        case .installing: return "Installing \(app.name)"
+        case .installing: return "Updating \(app.name)"
         case .done, .failed, nil: return "Updating"
         }
     }
