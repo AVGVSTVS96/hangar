@@ -159,7 +159,7 @@ final class Hangar {
             next()
         case .stopped:
             let percent = (Double(progress.sent) / Double(max(progress.size, 1))).formatted(.percent.precision(.fractionLength(0)))
-            jobs[id] = .failed("The download stopped at \(percent)")
+            jobs[id] = .failed("Stopped at \(percent)")
             moveOn(from: id)
         }
     }
@@ -233,7 +233,7 @@ final class Hangar {
             run.removeAll { $0 == id }
             report("no download after the Install alert (\(reason)): Cancel was tapped", app)
         } else {
-            jobs[id] = .failed("iOS couldn't reach hangar's server")
+            jobs[id] = .failed("iOS couldn't reach hangar")
             report("iOS never asked for the manifest (\(reason))", app)
         }
         moveOn(from: id)

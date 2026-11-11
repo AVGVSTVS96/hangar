@@ -19,7 +19,7 @@ enum Demo {
         } else if scene == "states" {
             hangar.run = [voice, keyboard, camera, hangarID]
             hangar.jobs = [
-                voice: .done, keyboard: .failed("The download stopped at 41%"), camera: .installing, hangarID: .waiting(asked: false),
+                voice: .done, keyboard: .failed("Stopped at 41%"), camera: .installing, hangarID: .waiting(asked: false),
             ]
         }
         return hangar

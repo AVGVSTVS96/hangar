@@ -4,18 +4,36 @@ struct AppsView: View {
     @Environment(Hangar.self) private var hangar
     var caption: String?
 
+    @State private var width: CGFloat = 0
+    private var margin: CGFloat { width >= 600 ? 20 : 16 }
+    private var columns: Int { width - 2 * margin >= 732 ? 2 : 1 }
+    private var columnWidth: CGFloat { (width - 2 * margin - CGFloat(columns - 1) * 12) / CGFloat(columns) }
+
     var body: some View {
         NavigationStack {
             ScrollViewReader { scroller in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
+                    LazyVStack(alignment: .leading, spacing: 12, pinnedViews: .sectionHeaders) {
                         if let caption {
                             Text(caption).font(.footnote).foregroundStyle(.secondary)
                         }
                         if !hangar.reachable { Offline() }
-                        UpdateAll()
-                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 360), spacing: 12, alignment: .top)], spacing: 12) {
-                            ForEach(hangar.shown) { AppCard(app: $0).id($0.id) }
+                        Section {
+                            HStack(alignment: .top, spacing: 12) {
+                                ForEach(0..<columns, id: \.self) { column in
+                                    VStack(spacing: 12) {
+                                        ForEach(hangar.shown.enumerated().filter { $0.offset % columns == column }.map(\.element)) {
+                                            AppCard(app: $0).id($0.id)
+                                        }
+                                    }
+                                }
+                            }
+                        } header: {
+                            UpdateAll()
+                                .frame(maxWidth: columns > 1 ? columnWidth : .infinity)
+                                .padding(.top, 6)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(Color(.systemGroupedBackground))
                         }
                     }
                     .padding(.horizontal, margin)
@@ -23,6 +41,7 @@ struct AppsView: View {
                     .animation(.snappy, value: hangar.reachable)
                     .animation(.snappy, value: hangar.shown.map(\.id))
                 }
+                .onGeometryChange(for: CGFloat.self, of: \.size.width) { width = $0 }
                 .onChange(of: hangar.focus, initial: true) { _, id in
                     guard let id else { return }
                     withAnimation(.snappy) { scroller.scrollTo(id) }
@@ -42,12 +61,9 @@ struct AppsView: View {
         }
     }
 
-    @Environment(\.horizontalSizeClass) private var sizeClass
-    private var margin: CGFloat { sizeClass == .regular ? 20 : 16 }
-
     private var summary: String {
-        if !hangar.loaded { return hangar.reachable ? "Connecting" : "" }
-        if hangar.apps.isEmpty { return "" }
+        if !hangar.loaded { return hangar.reachable ? "Connecting" : "Offline" }
+        if hangar.apps.isEmpty { return "Nothing to install" }
         if hangar.running {
             let total = hangar.run.count
             return total == 1 ? "Updating" : "Updating \(min(hangar.finished + 1, total)) of \(total)"
@@ -130,8 +146,8 @@ private struct AppCard: View {
         case .failed(let reason): return reason
         case nil: break
         }
-        guard let installed = app.installed else { return "\(app.build) · not installed" }
-        return installed >= app.build ? "\(app.build) · up to date" : "\(installed) → \(app.build)"
+        guard let installed = app.installed else { return "Build \(app.build) · not installed" }
+        return installed >= app.build ? "Build \(app.build)" : "\(installed) → \(app.build)"
     }
 }
 
@@ -160,7 +176,7 @@ private struct Action: View {
                 }
             }
         }
-        .frame(minWidth: 32, minHeight: 32)
+        .frame(minWidth: 32, minHeight: 32, alignment: .trailing)
     }
 
     private func pill(_ title: String, action: @escaping () -> Void) -> some View {
@@ -257,7 +273,7 @@ private struct UpdateAll: View {
             if hangar.running {
                 Color(.secondarySystemGroupedBackground)
                 GeometryReader { size in
-                    Rectangle().fill(.tint.opacity(0.22)).frame(width: size.size.width * hangar.fraction)
+                    Rectangle().fill(.tint.opacity(0.4)).frame(width: size.size.width * hangar.fraction)
                 }
             } else {
                 Rectangle().fill(.tint)
@@ -267,7 +283,7 @@ private struct UpdateAll: View {
 
     private var label: String {
         let updates = hangar.updates
-        let verb = updates.allSatisfy { $0.installed != nil } ? "Update" : "Install"
+        let verb = updates.contains { $0.installed != nil } ? "Update" : "Install"
         return updates.count == 1 ? "\(verb) \(updates[0].name)" : "\(verb) all \(updates.count)"
     }
 
@@ -276,7 +292,7 @@ private struct UpdateAll: View {
         switch hangar.jobs[id] {
         case .queued: return app.isHangar ? "hangar updates itself last" : "\(app.name) is up next"
         case .waiting(asked: false): return "Asking iOS to install \(app.name)"
-        case .waiting(asked: true): return "Tap Install to update \(app.name)"
+        case .waiting(asked: true): return "Tap Install for \(app.name)"
         case .downloading: return "Downloading \(app.name)"
         case .installing: return "Installing \(app.name)"
         case .done, .failed, nil: return "Updating"
