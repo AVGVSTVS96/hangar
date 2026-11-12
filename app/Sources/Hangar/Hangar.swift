@@ -303,11 +303,16 @@ final class Hangar {
 
     func open(_ app: Build) {
         guard let launch = app.launch else { return }
+        if app.isDownloaded {
+            jobs[app.id] = .installing
+            Task { await bringBack(app.id) }
+            return
+        }
         Task {
             if await UIApplication.shared.open(launch) {
                 report("opened", app)
             } else {
-                jobs[app.id] = .failed(app.isDownloaded ? "iOS didn't install it" : "Not on this phone")
+                jobs[app.id] = .failed("Not on this phone")
                 report("open failed: the build isn't installed", app)
             }
         }
