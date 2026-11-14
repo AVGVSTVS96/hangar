@@ -1,6 +1,7 @@
 #!/bin/sh
-# Runs on the Mac (ssh mac sh -s <serial> <app, relative to $HOME> < scripts/resign): signs the app xtool provisioned
-# with the Mac's identity whose certificate has that serial number, with the entitlements its embedded profile grants.
+# Runs on the Mac (ssh mac sh -s <serial> <app, relative to $HOME> < scripts/resign): signs the app xtool provisioned,
+# and each of its extensions, with the Mac's identity whose certificate has that serial number, each with the
+# entitlements its embedded profile grants.
 # xtool provisions for the Mac's development certificate but can't sign with it, since its key stays in the Mac's
 # login keychain. That keychain opens only in the login session, never over ssh, so the signing runs there as a
 # one-off launch agent, which no one sees.
@@ -17,15 +18,19 @@ dir=$(mktemp -d /tmp/hangar-resign.XXXXXX)
 cat > "$dir/run" <<RUN
 #!/bin/sh
 cd "\$HOME/$app"
-security cms -D -i embedded.mobileprovision > "$dir/profile.plist" || exit 1
-/usr/bin/python3 -c '
+for bundle in PlugIns/*.appex .; do
+  [ -d "\$bundle" ] || continue
+  security cms -D -i "\$bundle/embedded.mobileprovision" > "$dir/profile.plist" || exit 1
+  /usr/bin/python3 -c '
 import plistlib, sys
 granted = plistlib.load(open(sys.argv[1], "rb"))["Entitlements"]
-keys = ("application-identifier", "com.apple.developer.team-identifier", "get-task-allow")
+keys = ("application-identifier", "com.apple.developer.team-identifier", "get-task-allow",
+        "com.apple.security.application-groups", "com.apple.developer.family-controls")
 entitlements = {k: granted[k] for k in keys if k in granted}
 entitlements["keychain-access-groups"] = [granted["application-identifier"]]
 plistlib.dump(entitlements, open(sys.argv[2], "wb"))' "$dir/profile.plist" "$dir/entitlements.plist" || exit 1
-codesign -f -s $identity --entitlements "$dir/entitlements.plist" --generate-entitlement-der . || exit 1
+  codesign -f -s $identity --entitlements "$dir/entitlements.plist" --generate-entitlement-der "\$bundle" || exit 1
+done
 codesign --verify --deep --strict .
 RUN
 chmod +x "$dir/run"
