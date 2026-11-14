@@ -189,7 +189,7 @@ private struct AppCard: View {
         case nil: break
         }
         if hangar.auto.installing == app.id { return "Updating to \(app.build)" }
-        if hangar.auto.queue.contains(app.id) { return "Up next" }
+        if hangar.auto.queue.contains(app.id) { return app.isHangar ? "Updates itself last" : "Up next" }
         if app.isDownloaded { return "Got build \(app.build)" }
         guard let installed = app.installed else { return "Build \(app.build)" }
         return installed >= app.build ? "Build \(app.build)" : "\(installed) → \(app.build)"
