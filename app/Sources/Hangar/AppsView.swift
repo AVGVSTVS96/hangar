@@ -71,8 +71,9 @@ struct AppsView: View {
             let at = hangar.focus.flatMap { hangar.run.firstIndex(of: $0) }.map { $0 + 1 } ?? total
             return total == 1 ? "Updating" : "Updating \(at) of \(total)"
         }
-        let auto = hangar.auto.queue.count
-        if auto > 0 { return auto == 1 ? "Installing 1 build" : "Installing \(auto) builds" }
+        if let id = hangar.auto.installing, let app = hangar.apps.first(where: { $0.id == id }) { return "Updating \(app.name)" }
+        let queued = hangar.auto.queue.count
+        if queued > 0 { return "\(queued) up next" }
         let count = hangar.updates.count
         let downloaded = hangar.apps.count(where: \.isDownloaded)
         if count > 0 { return "\(count) new \(count == 1 ? "build" : "builds")" }
@@ -99,20 +100,29 @@ private struct AutoSwitch: View {
         Toggle(isOn: Binding(get: { hangar.auto.on }, set: { hangar.installsOnTheirOwn($0) })) {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Automatic installs").font(.headline)
-                Text(detail)
-                    .font(.subheadline)
-                    .foregroundStyle(hangar.auto.problem == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.orange))
-                    .contentTransition(.opacity)
+                Group {
+                    if let problem = hangar.auto.problem {
+                        Label {
+                            Text(problem)
+                        } icon: {
+                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        }
+                    } else {
+                        Text(hangar.auto.on ? "Builds install by themselves" : "Builds wait for your tap")
+                    }
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .contentTransition(.opacity)
             }
         }
+        .disabled(!hangar.reachable)
         .padding(16)
         .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 26))
         .sensoryFeedback(.selection, trigger: hangar.auto.on)
-    }
-
-    private var detail: String {
-        if let problem = hangar.auto.problem { return "\(problem). Tap Update for now." }
-        return hangar.auto.on ? "New builds go onto this phone by themselves" : "New builds wait for you to tap Update"
+        .transition(.opacity.combined(with: .move(edge: .top)))
     }
 }
 
@@ -178,8 +188,8 @@ private struct AppCard: View {
         case .failed(let reason): return reason
         case nil: break
         }
-        if hangar.auto.installing == app.id { return "Installing by itself" }
-        if hangar.auto.queue.contains(app.id) { return "Installs by itself" }
+        if hangar.auto.installing == app.id { return "Updating to \(app.build)" }
+        if hangar.auto.queue.contains(app.id) { return "Up next" }
         if app.isDownloaded { return "Got build \(app.build)" }
         guard let installed = app.installed else { return "Build \(app.build)" }
         return installed >= app.build ? "Build \(app.build)" : "\(installed) → \(app.build)"
@@ -208,7 +218,7 @@ private struct Action: View {
                 if hangar.auto.installing == app.id {
                     Ring(fraction: nil)
                 } else if hangar.auto.queue.contains(app.id) {
-                    Ring(fraction: 0)
+                    EmptyView()
                 } else if app.isDownloaded {
                     pill("Open") { hangar.open(app) }
                 } else if !app.isCurrent {

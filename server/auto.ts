@@ -82,7 +82,7 @@ const findPhone = async (model: string) => {
     .find((hardware) => hardware?.fidelity === "physical" && hardware.productType === model);
 
   if (phone === undefined) {
-    throw new MacError("The Mac isn't paired with this phone");
+    throw new MacError("The Mac doesn't know this phone");
   }
 
   return phone.udid;
