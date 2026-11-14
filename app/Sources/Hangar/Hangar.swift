@@ -31,6 +31,14 @@ struct Progress: Decodable {
     let size: Int
 }
 
+struct AutoInstall: Decodable, Equatable {
+    var available = false
+    var on = false
+    var installing: String?
+    var problem: String?
+    var queue: [String] = []
+}
+
 enum Job: Equatable {
     case queued
     case waiting(asked: Bool)
@@ -60,6 +68,7 @@ final class Hangar {
     static let ownBuild = Int(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "") ?? 0
 
     var apps: [Build] = []
+    var auto = AutoInstall()
     var jobs: [String: Job] = [:]
     var run: [String] = []
     var reachable = true
@@ -78,7 +87,7 @@ final class Hangar {
         self.server = server
     }
 
-    var updates: [Build] { apps.filter { !$0.isCurrent && !$0.isDownloaded } }
+    var updates: [Build] { apps.filter { !$0.isCurrent && !$0.isDownloaded && !auto.queue.contains($0.id) } }
     var shown: [Build] { apps.filter { !$0.isHangar || !$0.isCurrent || jobs[$0.id] != nil } }
     var running: Bool { run.contains { jobs[$0]?.isActive == true } }
     var focus: String? { current ?? run.first { jobs[$0]?.isActive == true } }
@@ -130,6 +139,8 @@ final class Hangar {
         if event == "apps", let apps = try? Self.decoder.decode([Build].self, from: data) {
             show(apps)
             if catchUp { catchUpMissed() }
+        } else if event == "auto", let auto = try? Self.decoder.decode(AutoInstall.self, from: data) {
+            self.auto = auto
         } else if event == "install", let progress = try? Self.decoder.decode(Progress.self, from: data) {
             receive(progress)
         }
@@ -181,6 +192,22 @@ final class Hangar {
         var body: [String: Any] = ["event": event, "id": app.id, "build": app.build]
         body["detail"] = detail
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        Task { _ = try? await URLSession.shared.data(for: request) }
+    }
+
+    static let model = {
+        var system = utsname()
+        uname(&system)
+        return withUnsafeBytes(of: system.machine) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+    }()
+
+    func installsOnTheirOwn(_ on: Bool) {
+        auto.on = on
+        guard let server else { return }
+        var request = URLRequest(url: server.appending(path: "auto"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["on": on, "model": Self.model])
         Task { _ = try? await URLSession.shared.data(for: request) }
     }
 

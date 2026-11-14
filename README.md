@@ -28,6 +28,10 @@ hangar reads the bundle id, name, build and icon from the `.ipa`. Nothing about 
 
 Only that exact build answers that scheme. hangar opens it once iOS has installed the build, which tells hangar the install is done and launches the new build, using public API only.
 
+## Automatic installs
+
+The switch at the top of hangar puts every new build on the phone by itself, with no tap. The server sends the build to a Mac the phone is paired with, which installs it with `xcrun devicectl device install app`, one app at a time and hangar last. It tries whenever a build is put, hangar opens, or an app tells hangar it runs. When the Mac or the phone can't be reached, the switch says why and the build waits as an Update to tap. Set `HANGAR_MAC` to the Mac's ssh host to show the switch.
+
 ## Update from inside an app
 
 An app with its own update prompt can hand the update to hangar:
@@ -62,6 +66,7 @@ if let base = Bundle.main.object(forInfoDictionaryKey: "HangarURL") as? String, 
 ```sh
 bun install
 echo 'HANGAR_URL=https://<your host>/hangar' > config
+echo 'HANGAR_MAC=<ssh host of the Mac the phone is paired with>' >> config   # for automatic installs
 bin/hangar serve      # 127.0.0.1:8792, or HANGAR_PORT
 tailscale serve --bg --set-path=/hangar http://127.0.0.1:8792
 ```
@@ -72,10 +77,11 @@ Builds live in `~/.local/share/hangar` (or `HANGAR_DIR`). The log names each dev
 | --- | --- |
 | `GET /` | Install page for Safari |
 | `GET /apps` | Each app's latest build, and the builds this phone last downloaded and last opened |
-| `GET /events` | Server-sent `apps` and `install` (download progress) events for this phone |
+| `GET /events` | Server-sent `apps`, `auto` (automatic installs) and `install` (download progress) events for this phone |
 | `GET /apps/<id>/<build>/manifest.plist` | The `itms-services` manifest |
 | `POST /log` | What the app saw, written to the server log |
 | `POST /running` | `{"id", "build"}`: the build an app runs on this phone |
+| `POST /auto` | `{"on", "model"}`: this phone's automatic installs switch, and its model, like `iPhone19,4`, to find it on the Mac |
 
 ## Build the app
 

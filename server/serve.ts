@@ -6,6 +6,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { z } from "zod";
 
+import { autoInstaller } from "./auto.ts";
 import { appsDir, downloaded, getApp, iconPath, ipaPath, listApps, opened } from "./store.ts";
 import type { App } from "./store.ts";
 
@@ -94,6 +95,8 @@ const log = (ip: string, line: string) => {
   console.log(`${device(ip)}: ${line}`);
 };
 
+const auto = autoInstaller(log);
+
 const clientIp = (req: IncomingMessage) =>
   (req.headers["x-forwarded-for"]?.toString().split(",")[0] ?? req.socket.remoteAddress ?? "").trim();
 
@@ -116,7 +119,13 @@ interface Install {
 
 type PhoneApp = Awaited<ReturnType<typeof appsFor>>[number];
 
-const send = (client: Client, event: "apps" | "install", data: PhoneApp[] | Install) => {
+type AutoStatus = Awaited<ReturnType<typeof auto.status>>;
+
+const send = (
+  client: Client,
+  event: "apps" | "auto" | "install",
+  data: PhoneApp[] | AutoStatus | Install,
+) => {
   client.res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 };
 
@@ -137,9 +146,18 @@ const pushApps = async (ip?: string) => {
   const targets = [...clients].filter((client) => ip === undefined || client.ip === ip);
   await Promise.all(
     targets.map(async (client) => {
+      send(client, "auto", await auto.status(client.ip));
       send(client, "apps", await appsFor(client.ip));
     }),
   );
+};
+
+auto.onChange((ip) => {
+  pushApps(ip).catch(console.error);
+});
+
+const sync = (ip: string) => {
+  auto.sync(ip).catch(console.error);
 };
 
 const pushInstall = (ip: string, app: App, step: Step, sent: number) => {
@@ -248,7 +266,9 @@ const events = async (req: IncomingMessage, res: ServerResponse, ip: string) => 
     clearInterval(beat);
     clients.delete(client);
   });
+  send(client, "auto", await auto.status(ip));
   send(client, "apps", await appsFor(ip));
+  sync(ip);
 };
 
 const report = async (req: IncomingMessage, res: ServerResponse, ip: string) => {
@@ -272,6 +292,15 @@ const running = async (req: IncomingMessage, res: ServerResponse, ip: string) =>
   await opened.set(ip, id, build);
   await pushApps(ip);
   json(res, { ok: true });
+  sync(ip);
+};
+
+const AutoSetting = z.object({ model: z.string(), on: z.boolean() });
+
+const setAuto = async (req: IncomingMessage, res: ServerResponse, ip: string) => {
+  const { on, model } = AutoSetting.parse(JSON.parse(await readBody(req)));
+  json(res, { ok: true });
+  await auto.set(ip, on, model);
 };
 
 const appFile = async (req: IncomingMessage, res: ServerResponse, ip: string, path: string) => {
@@ -327,6 +356,8 @@ const route = async (req: IncomingMessage, res: ServerResponse) => {
     await report(req, res, ip);
   } else if (path === "/running" && req.method === "POST") {
     await running(req, res, ip);
+  } else if (path === "/auto" && req.method === "POST") {
+    await setAuto(req, res, ip);
   } else {
     await appFile(req, res, ip, path);
   }
@@ -356,7 +387,7 @@ export const serve = async () => {
     if (file?.endsWith("app.json") === true) {
       clearTimeout(pending);
       pending = setTimeout(() => {
-        pushApps().catch(console.error);
+        pushApps().then(auto.syncAll).catch(console.error);
       }, 200);
     }
   });

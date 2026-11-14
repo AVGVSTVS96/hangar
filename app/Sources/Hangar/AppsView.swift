@@ -17,6 +17,7 @@ struct AppsView: View {
                             Text(caption).font(.footnote).foregroundStyle(.secondary)
                         }
                         if !hangar.reachable { Offline() }
+                        if hangar.auto.available && hangar.loaded { AutoSwitch() }
                         Section {
                             HStack(alignment: .top, spacing: 12) {
                                 ForEach(0..<columns, id: \.self) { column in
@@ -36,6 +37,7 @@ struct AppsView: View {
                     .padding(.horizontal, margin)
                     .padding(.bottom, 24)
                     .animation(.snappy, value: hangar.reachable)
+                    .animation(.snappy, value: hangar.auto)
                     .animation(.snappy, value: hangar.shown.map(\.id))
                 }
                 .onGeometryChange(for: CGFloat.self, of: \.size.width) { width = $0 }
@@ -69,6 +71,8 @@ struct AppsView: View {
             let at = hangar.focus.flatMap { hangar.run.firstIndex(of: $0) }.map { $0 + 1 } ?? total
             return total == 1 ? "Updating" : "Updating \(at) of \(total)"
         }
+        let auto = hangar.auto.queue.count
+        if auto > 0 { return auto == 1 ? "Installing 1 build" : "Installing \(auto) builds" }
         let count = hangar.updates.count
         let downloaded = hangar.apps.count(where: \.isDownloaded)
         if count > 0 { return "\(count) new \(count == 1 ? "build" : "builds")" }
@@ -85,6 +89,30 @@ private struct Offline: View {
             .padding(16)
             .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 26))
             .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+}
+
+private struct AutoSwitch: View {
+    @Environment(Hangar.self) private var hangar
+
+    var body: some View {
+        Toggle(isOn: Binding(get: { hangar.auto.on }, set: { hangar.installsOnTheirOwn($0) })) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Automatic installs").font(.headline)
+                Text(detail)
+                    .font(.subheadline)
+                    .foregroundStyle(hangar.auto.problem == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.orange))
+                    .contentTransition(.opacity)
+            }
+        }
+        .padding(16)
+        .background(Color(.secondarySystemGroupedBackground), in: .rect(cornerRadius: 26))
+        .sensoryFeedback(.selection, trigger: hangar.auto.on)
+    }
+
+    private var detail: String {
+        if let problem = hangar.auto.problem { return "\(problem). Tap Update for now." }
+        return hangar.auto.on ? "New builds go onto this phone by themselves" : "New builds wait for you to tap Update"
     }
 }
 
@@ -150,6 +178,8 @@ private struct AppCard: View {
         case .failed(let reason): return reason
         case nil: break
         }
+        if hangar.auto.installing == app.id { return "Installing by itself" }
+        if hangar.auto.queue.contains(app.id) { return "Installs by itself" }
         if app.isDownloaded { return "Got build \(app.build)" }
         guard let installed = app.installed else { return "Build \(app.build)" }
         return installed >= app.build ? "Build \(app.build)" : "\(installed) → \(app.build)"
@@ -175,7 +205,11 @@ private struct Action: View {
                     .transition(.scale.combined(with: .opacity))
             case .failed: pill("Retry") { hangar.install([app]) }.disabled(!hangar.reachable)
             case nil:
-                if app.isDownloaded {
+                if hangar.auto.installing == app.id {
+                    Ring(fraction: nil)
+                } else if hangar.auto.queue.contains(app.id) {
+                    Ring(fraction: 0)
+                } else if app.isDownloaded {
                     pill("Open") { hangar.open(app) }
                 } else if !app.isCurrent {
                     pill("Update") { hangar.install([app]) }.disabled(!hangar.reachable)

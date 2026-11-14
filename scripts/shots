@@ -34,10 +34,10 @@ while read -r screen hinge orientation display; do
   sleep 3
   xcrun simctl spawn "$id" "$PWD/build/devicehub" orientation "$orientation"
   sleep 2
-  for scene in list run; do
+  for scene in list auto run; do
     for appearance in light dark; do shoot "$screen" "$scene" "$appearance" "$display"; done
   done
-  [ "$screen" != folded-portrait ] || for scene in states late finished current empty offline connecting; do
+  [ "$screen" != folded-portrait ] || for scene in stuck states late finished current empty offline connecting; do
     for appearance in light dark; do shoot "$screen" "$scene" "$appearance" "$display"; done
   done
 done <<SCREENS

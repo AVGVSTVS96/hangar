@@ -7,6 +7,7 @@ enum Demo {
         let scene = arguments[at + 1]
         let hangar = Hangar(server: nil)
         hangar.reachable = scene != "offline"
+        hangar.auto.available = true
         switch scene {
         case "connecting": break
         case "empty": hangar.show([])
@@ -19,7 +20,11 @@ enum Demo {
         default: hangar.show(apps)
         }
         let voice = "com.example.voice", keyboard = "com.example.keyboard", camera = "com.example.camera"
-        if scene == "run" {
+        if scene == "auto" {
+            hangar.auto = AutoInstall(available: true, on: true, installing: voice, queue: [voice, keyboard, camera, hangarID])
+        } else if scene == "stuck" {
+            hangar.auto = AutoInstall(available: true, on: true, problem: "The Mac isn't answering")
+        } else if scene == "run" {
             hangar.run = [voice, keyboard, camera, hangarID]
             hangar.jobs = [voice: .downloading(0.62), keyboard: .waiting(asked: true), camera: .queued, hangarID: .queued]
             hangar.current = keyboard

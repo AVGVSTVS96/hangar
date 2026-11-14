@@ -20,8 +20,6 @@ const App = z.object({
 
 export type App = z.infer<typeof App>;
 
-const Phones = z.record(z.string(), z.record(z.string(), z.number()));
-
 export const home = process.env.HANGAR_DIR ?? path.join(homedir(), ".local/share/hangar");
 export const appsDir = path.join(home, "apps");
 export const folder = (id: string) => path.join(appsDir, id);
@@ -88,27 +86,40 @@ export const put = async (file: string, notes: string) => {
   return app;
 };
 
-const phoneRecord = (file: string) => {
+const record = <T>(file: string, value: z.ZodType<T>) => {
   const at = path.join(home, file);
-  let all: z.infer<typeof Phones> | undefined;
+  let all: Record<string, T> | undefined;
 
   const load = async () => {
-    all ??= (await readJson(at, Phones)) ?? {};
+    all ??= (await readJson(at, z.record(z.string(), value))) ?? {};
 
     return all;
   };
 
   return {
-    get: async (ip: string) => (await load())[ip] ?? {},
-    set: async (ip: string, id: string, build: number) => {
-      const phones = await load();
-      phones[ip] = { ...phones[ip], [id]: build };
+    all: load,
+    get: async (ip: string) => (await load())[ip],
+    set: async (ip: string, data: T) => {
+      const records = await load();
+      records[ip] = data;
       mkdirSync(home, { recursive: true });
-      writeFileSync(`${at}.part`, JSON.stringify(phones, null, 2));
+      writeFileSync(`${at}.part`, JSON.stringify(records, null, 2));
       renameSync(`${at}.part`, at);
+    },
+  };
+};
+
+const phoneRecord = (file: string) => {
+  const builds = record(file, z.record(z.string(), z.number()));
+
+  return {
+    get: async (ip: string) => (await builds.get(ip)) ?? {},
+    set: async (ip: string, id: string, build: number) => {
+      await builds.set(ip, { ...(await builds.get(ip)), [id]: build });
     },
   };
 };
 
 export const opened = phoneRecord("phones.json");
 export const downloaded = phoneRecord("downloads.json");
+export const autoInstalls = record("auto.json", z.object({ model: z.string(), on: z.boolean() }));
