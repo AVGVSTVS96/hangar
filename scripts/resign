@@ -18,7 +18,7 @@ dir=$(mktemp -d /tmp/hangar-resign.XXXXXX)
 cat > "$dir/run" <<RUN
 #!/bin/sh
 cd "\$HOME/$app"
-for bundle in PlugIns/*.appex .; do
+for bundle in PlugIns/*.appex Extensions/*.appex .; do
   [ -d "\$bundle" ] || continue
   security cms -D -i "\$bundle/embedded.mobileprovision" > "$dir/profile.plist" || exit 1
   /usr/bin/python3 -c '
