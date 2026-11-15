@@ -32,6 +32,14 @@ Only that exact build answers that scheme. hangar opens it once iOS has installe
 
 The switch at the top of hangar puts every new build on the phone by itself, with no tap. The server sends the build to a Mac the phone is paired with, which installs it with `xcrun devicectl device install app`, one app at a time and hangar last. It tries whenever a build is put, hangar opens, or an app tells hangar it runs. When the Mac or the phone can't be reached, the switch says why and the build waits as an Update to tap. Set `HANGAR_MAC` to the Mac's ssh host to show the switch.
 
+## Roll back
+
+```sh
+bin/hangar rollback com.example.app
+```
+
+hangar keeps the build before the latest one. `rollback` makes that build the one it holds again, and the phone gets exactly that build, even though it runs a newer one: automatic installs put it on by themselves. Running it again goes forward, and the next `put` ends the rollback.
+
 ## Update from inside an app
 
 An app with its own update prompt can hand the update to hangar:

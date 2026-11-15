@@ -9,6 +9,7 @@ import { readIpa } from "./ipa.ts";
 
 const App = z.object({
   build: z.number(),
+  exact: z.boolean().optional(),
   icon: z.boolean(),
   id: z.string(),
   name: z.string(),
@@ -19,6 +20,9 @@ const App = z.object({
 });
 
 export type App = z.infer<typeof App>;
+
+// After a rollback the phone runs only the exact build hangar holds; otherwise any build as new or newer.
+export const runs = (app: App, has: number) => (app.exact === true ? has === app.build : has >= app.build);
 
 export const home = process.env.HANGAR_DIR ?? path.join(homedir(), ".local/share/hangar");
 export const appsDir = path.join(home, "apps");
@@ -84,6 +88,34 @@ export const put = async (file: string, notes: string) => {
   );
 
   return app;
+};
+
+export const rollback = async (id: string) => {
+  const app = await getApp(id);
+
+  const other = (await readdir(folder(id)).catch(() => []))
+    .map((name) => Number(/^(\d+)\.ipa$/u.exec(name)?.[1]))
+    .find((build) => !Number.isNaN(build) && build !== app?.build);
+
+  if (app === undefined || other === undefined) {
+    throw new Error(`hangar holds no other build of ${id} to go back to`);
+  }
+
+  const bytes = await readFile(ipaPath(id, other));
+
+  const back: App = {
+    ...app,
+    build: other,
+    exact: true,
+    notes: `Back to build ${other} from ${app.build}`,
+    published: new Date().toISOString(),
+    size: bytes.length,
+    version: readIpa(bytes).version,
+  };
+
+  await writeAtomically(path.join(folder(id), "app.json"), JSON.stringify(back, null, 2));
+
+  return { from: app, to: back };
 };
 
 const record = <T>(file: string, value: z.ZodType<T>) => {

@@ -4,7 +4,7 @@ import { createReadStream } from "node:fs";
 
 import { z } from "zod";
 
-import { autoInstalls, downloaded, ipaPath, listApps, opened } from "./store.ts";
+import { autoInstalls, downloaded, ipaPath, listApps, opened, runs } from "./store.ts";
 import type { App } from "./store.ts";
 
 const mac = process.env.HANGAR_MAC ?? "";
@@ -117,7 +117,13 @@ const pending = async (ip: string) => {
   const [apps, phone, downloads] = await Promise.all([listApps(), opened.get(ip), downloaded.get(ip)]);
 
   return apps
-    .filter((app) => Math.max(phone[app.id] ?? 0, downloads[app.id] ?? 0) < app.build)
+    .filter(
+      (app) =>
+        !runs(
+          app,
+          app.exact === true ? (phone[app.id] ?? 0) : Math.max(phone[app.id] ?? 0, downloads[app.id] ?? 0),
+        ),
+    )
     .toSorted((a, b) => Number(isHangar(a)) - Number(isHangar(b)));
 };
 
@@ -152,7 +158,7 @@ export const autoInstaller = (log: (ip: string, line: string) => void) => {
   };
 
   const install = async (ip: string, udid: string, app: App, has: number) => {
-    if (has >= app.build) {
+    if (runs(app, has)) {
       await opened.set(ip, app.id, has);
 
       return;
