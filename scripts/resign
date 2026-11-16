@@ -1,6 +1,6 @@
 #!/bin/sh
 # Runs on the Mac (ssh mac sh -s <serial> <app, relative to $HOME> < scripts/resign): signs the app xtool provisioned,
-# and each of its extensions, with the Mac's identity whose certificate has that serial number, each with the
+# its frameworks and each of its extensions with the Mac's identity whose certificate has that serial number, each with the
 # entitlements its embedded profile grants.
 # xtool provisions for the Mac's development certificate but can't sign with it, since its key stays in the Mac's
 # login keychain. That keychain opens only in the login session, never over ssh, so the signing runs there as a
@@ -18,6 +18,10 @@ dir=$(mktemp -d /tmp/hangar-resign.XXXXXX)
 cat > "$dir/run" <<RUN
 #!/bin/sh
 cd "\$HOME/$app"
+for framework in Frameworks/*; do
+  [ -e "\$framework" ] || continue
+  codesign -f -s $identity "\$framework" || exit 1
+done
 for bundle in PlugIns/*.appex Extensions/*.appex .; do
   [ -d "\$bundle" ] || continue
   security cms -D -i "\$bundle/embedded.mobileprovision" > "$dir/profile.plist" || exit 1
